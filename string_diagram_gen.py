@@ -22,6 +22,8 @@ Syntax:
                       at this position
     { d1 } = { d2 }   equation: diagrams side by side, separated by any
                       LaTeX relation (=, \\approx, \\overset{a}{=}, ...)
+    d1 --- d2         separate diagrams, written to name_1.tikz, name_2.tikz,
+                      ... (name taken from -o)
 
 Strings flow upwards: the first row is the top of the diagram, so a
 variable must be produced on a lower row (later in the string) than the
@@ -1092,6 +1094,24 @@ def generate(text):
     return tw.render()
 
 
+def split_diagrams(text):
+    """Split the input on '---' into separate diagram strings. Comment lines
+    are dropped first so that a '---' inside a comment does not split."""
+    text = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
+    return [part for part in re.split(r'-{3,}', text) if part.strip()]
+
+
+def output_names(output, count):
+    """The output file for each of `count` diagrams: `output` itself for a
+    single diagram, otherwise name_1.tikz, name_2.tikz, ..."""
+    if count == 1:
+        return [output]
+    stem, dot, ext = output.rpartition('.')
+    if not dot or '/' in ext or '\\' in ext:
+        stem, ext = output, 'tikz'
+    return [f"{stem}_{k}.{ext}" for k in range(1, count + 1)]
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Generate a TikZiT .tikz string diagram from a text description.",
@@ -1119,13 +1139,20 @@ def main():
         except EOFError:
             sys.exit(1)
 
-    try:
-        tikz = generate(text)
-    except DiagramError as exc:
-        sys.exit(f"error: {exc}")
-    with open(args.output, 'w') as fh:
-        fh.write(tikz)
-    print(f"wrote {args.output}")
+    parts = split_diagrams(text)
+    if not parts:
+        sys.exit("error: empty diagram")
+    tikzs = []
+    for k, part in enumerate(parts):
+        try:
+            tikzs.append(generate(part))
+        except DiagramError as exc:
+            prefix = f"part {k + 1}: " if len(parts) > 1 else ''
+            sys.exit(f"error: {prefix}{exc}")
+    for name, tikz in zip(output_names(args.output, len(parts)), tikzs):
+        with open(name, 'w') as fh:
+            fh.write(tikz)
+        print(f"wrote {name}")
 
 
 if __name__ == '__main__':
