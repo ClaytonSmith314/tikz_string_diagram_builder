@@ -1,0 +1,8 @@
+
+{\sigma(x1p:X|x1); h^\dagger_p(x1|z1); \copy(z1,z2:Z|z); h(z|x); p(x)}
+= {\sigma(x1p:X|x) h(z:Z|x); p(x)}
+= {h(z:Z|x2p); \sigma(x1p:X|x) \sigma(x2p|x); p(x)}
+= {h(z:Z|x2); \copy(x1:X,x2|px); \sigma(px|x); p(x)}
+= {h^\dagger_{\sigma p}(x2:X|z1); \copy(z1,z2:Z|z); h(z|x1); \sigma(x1|x); p(x)}
+= {h^\dagger_{\sigma p}(x2:X|z1); \copy(z1,z2:Z|z); h(z|x); p(x)}
+
