@@ -51,12 +51,13 @@ BOX_H = 0.6        # morphism box height
 BOX_MIN_W = 0.6    # minimum morphism box width
 BOX_PAD = 0.35     # horizontal padding around box text
 BOX_GAP = 0.2      # space between a box and its neighbours in a row
-COPY_H = 0.25       # height of a row containing a copy
 COPY_DOT = 0.1     # height of the copy dot above the bottom of its row
+COPY_SPREAD = 0.8  # distance between adjacent branches of a copy
+COPY_RISE = 0.3    # height of a copy branch's curve above the dot
 DEL_H = 0.35       # height of a row containing a delete
 DEL_DOT = 0.25     # height of the delete dot above the bottom of its row
 GAP_MIN = 0.2      # minimum vertical gap between rows
-LIGHT_H = 0.2      # height of a row without morphism boxes (copies/deletes)
+LIGHT_H = 0.2      # max height of a row without morphism boxes or copies
 LIGHT_GAP = 0.1    # minimum gap next to a row without morphism boxes
 CHAIN_W = 20.0     # pull keeping a string that passes through rows straight
 COPY_OUT_W = 0.25  # pull of a copy's branches (copies sit above their input)
@@ -441,12 +442,45 @@ FONT_CMDS = {'mathrm', 'mathbf', 'mathsf', 'mathit', 'mathcal', 'mathbb',
 
 
 def tex_width(s):
-    w = 0.0
-    for tok in re.findall(r'\\[A-Za-z]+|\\.|.', s.replace('$', '')):
+    toks = re.findall(r'\\[A-Za-z]+|\\.|.', s.replace('$', ''))
+
+    def script_arg(i):
+        """Tokens of the script argument starting at toks[i] (a single token
+        or a {...} group) and the index after it."""
+        while i < len(toks) and toks[i] == ' ':
+            i += 1
+        if i >= len(toks):
+            return [], i
+        if toks[i] != '{':
+            return [toks[i]], i + 1
+        depth = 0
+        for j in range(i, len(toks)):
+            depth += {'{': 1, '}': -1}.get(toks[j], 0)
+            if depth == 0:
+                return toks[i + 1:j], j + 1
+        return toks[i + 1:], len(toks)
+
+    def width(toks_):
+        return tex_width(''.join(toks_))
+
+    w, i = 0.0, 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok in '^_':
+            # a superscript and subscript on the same base are stacked, so
+            # they take the width of the wider one
+            arg, i = script_arg(i + 1)
+            sw = width(arg)
+            if i < len(toks) and toks[i] in '^_' and toks[i] != tok:
+                arg, i = script_arg(i + 1)
+                sw = max(sw, width(arg))
+            w += sw
+            continue
+        i += 1
         if tok.startswith('\\') and len(tok) > 1:
             if tok[1:] not in FONT_CMDS:
                 w += SYM_W if tok[1:].isalpha() else 0.1
-        elif tok in '{}^_ ':
+        elif tok in '{} ':
             continue
         elif tok.isalnum():
             w += CHAR_W
@@ -467,8 +501,9 @@ def set_geometry(e):
         e.in_off, e.out_off = centred(len(e.ins)), centred(len(e.outs))
     elif e.kind == 'copy':
         k = len(e.outs)
-        e.out_off = [(j - (k - 1) / 2) * S for j in range(k)]
-        e.in_off, e.half, e.height = [0.0], (k - 1) * S / 2, COPY_H
+        e.out_off = [(j - (k - 1) / 2) * COPY_SPREAD for j in range(k)]
+        e.in_off, e.half = [0.0], (k - 1) * COPY_SPREAD / 2
+        e.height = COPY_DOT + COPY_RISE
     elif e.kind == 'del':
         e.in_off, e.out_off, e.half, e.height = [0.0], [], 0.0, DEL_H
     else:
@@ -591,11 +626,14 @@ class Layout:
         chain = chain_of.get(e)
         if chain:
             return self.chain_terms(chain)
-        win, wout = (1.0, COPY_OUT_W) if e.kind == 'copy' else (1.0, 1.0)
+        wout = COPY_OUT_W if e.kind == 'copy' else 1.0
         terms = []
         for w, o in zip(e.ins, e.in_off):
             nb = self.top_pt.get((w, r - 1))
             if nb:
+                # a copy branch pulls equally weakly from both ends, so the
+                # copy settles midway between its branches when it can
+                win = COPY_OUT_W if nb[0].kind == 'copy' else 1.0
                 terms.append(self.seg_pull(w, r, self.xat(nb) - o, win))
         for w, o in zip(e.outs, e.out_off):
             nb = self.bot_pt.get((w, r + 1))
@@ -786,7 +824,8 @@ class Layout:
                 y += max(gmin, GAP_BASE + GAP_SLOPE * dx) if dx > 1e-3 else gmin
             self.y_bot[r] = y
             heights = [e.height for e in self.rows[r]]
-            y += max(heights, default=0.0) if self.has_box[r] else min(max(heights, default=0.0), LIGHT_H)
+            full = self.has_box[r] or any(e.kind == 'copy' for e in self.rows[r])
+            y += max(heights, default=0.0) if full else min(max(heights, default=0.0), LIGHT_H)
             self.y_top[r] = y
         self.y_max = y + STUB
 
